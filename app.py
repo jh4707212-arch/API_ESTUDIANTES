@@ -1,12 +1,14 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv 
 
+# Cargar variables de entorno (DATABASE_URL)
 load_dotenv()
 
 app = Flask(__name__)
 
+# Configuración de la base de datos (usa la variable de entorno de Render)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -20,8 +22,49 @@ class Estudiante(db.Model):
     ap_materno = db.Column(db.String(100))
     semestre = db.Column(db.Integer)
 
+# -----------------------------------------------
+# 1. RUTAS DEL CRUD WEB (Maneja la Interfaz HTML)
+# -----------------------------------------------
+
+# Ruta Raíz: Muestra la tabla de estudiantes (Web)
+@app.route('/')
+def index():
+    estudiantes = Estudiante.query.all()
+    # Necesitas tener un archivo 'index.html' en la carpeta 'templates/'
+    return render_template('index.html', estudiantes=estudiantes)
+
+# Ruta de Inserción Web
+@app.route('/insert', methods=['POST'])
+def insert_web():
+    # Nota: Este es un ejemplo. Debes adaptar los campos de 'request.form'
+    # según lo que tu formulario HTML (insert.html) envíe.
+    data = request.form
+    nuevo_estudiante = Estudiante(
+        no_control = data['no_control'],
+        nombre = data['nombre'],
+        ap_paterno = data['ap_paterno'],
+        ap_materno = data['ap_materno'],
+        semestre = int(data['semestre']) # Asegurar que es un entero
+    )
+    try:
+        db.session.add(nuevo_estudiante)
+        db.session.commit()
+        return redirect(url_for('index'))
+    except Exception:
+        db.session.rollback()
+        # En una app real, aquí se manejaría un error
+        return "Error al insertar estudiante web", 500
+
+# Añadir aquí las rutas de update y delete del CRUD web (si las tenías)
+# ...
+
+# -----------------------------------------------
+# 2. RUTAS DE LA API REST (Maneja el JSON)
+# -----------------------------------------------
+
 @app.route('/estudiantes', methods=['GET'])
 def get_estudiantes():
+    # Devuelve el listado completo en JSON
     estudiantes = Estudiante.query.all()
     lista_estudiantes = []
     for estudiante in estudiantes:
@@ -36,6 +79,7 @@ def get_estudiantes():
 
 @app.route('/estudiantes/<no_control>', methods=['GET'])
 def get_estudiante(no_control):
+    # Devuelve un estudiante por No. Control en JSON
     estudiante = Estudiante.query.get(no_control)
     if estudiante is None:
         return jsonify({'msg': 'Estudiante no encontrado'}), 404
@@ -49,6 +93,7 @@ def get_estudiante(no_control):
 
 @app.route('/estudiantes', methods=['POST'])
 def insert_estudiante():
+    # Inserta un estudiante a través de la API (JSON payload)
     data = request.get_json()
     if not all(k in data for k in ('no_control', 'nombre', 'ap_paterno', 'ap_materno', 'semestre')):
         return jsonify({'msg': 'Faltan campos obligatorios'}), 400
@@ -71,6 +116,7 @@ def insert_estudiante():
 
 @app.route('/estudiantes/<no_control>', methods=['DELETE'])
 def delete_estudiante(no_control):
+    # Elimina un estudiante por No. Control a través de la API
     estudiante = Estudiante.query.get(no_control)
     if estudiante is None:
         return jsonify({'msg': 'Estudiante no encontrado'}), 404
@@ -84,6 +130,7 @@ def delete_estudiante(no_control):
 
 @app.route('/estudiantes/<no_control>', methods=['PATCH'])
 def updateestudiante(no_control):
+    # Actualiza parcialmente un estudiante por No. Control a través de la API
     estudiante = Estudiante.query.get(no_control)
     if estudiante is None:
         return jsonify({'msg': 'Estudiante no encontrado'}), 404
