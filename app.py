@@ -2,6 +2,10 @@ import os
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv 
+import logging # Importamos la librería de logging
+
+# Configurar logging para ver errores detallados en Render
+logging.basicConfig(level=logging.INFO)
 
 # Cargar variables de entorno (DATABASE_URL)
 load_dotenv()
@@ -9,6 +13,7 @@ load_dotenv()
 app = Flask(__name__)
 
 # Configuración de la base de datos (usa la variable de entorno de Render)
+# NOTA: Asegúrate de que esta URL tiene el 'postgresql://' y no 'postgres://'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -29,53 +34,111 @@ class Estudiante(db.Model):
 # Ruta Raíz: Muestra la tabla de estudiantes (Web)
 @app.route('/')
 def index():
-    estudiantes = Estudiante.query.all()
-    # Necesitas tener un archivo 'index.html' en la carpeta 'templates/'
-    return render_template('index.html', estudiantes=estudiantes)
+    try:
+        estudiantes = Estudiante.query.all()
+        return render_template('index.html', estudiantes=estudiantes)
+    except Exception as e:
+        logging.error(f"Error al cargar la tabla de index: {e}")
+        return "Error al cargar los datos de la base de datos.", 500
 
-# Ruta de Inserción Web
+# Ruta GET para mostrar el formulario de creación
+@app.route('/estudiantes/create', methods=['GET'])
+def create_estudiante_web():
+    # Necesita un archivo 'create_estudiante.html' en la carpeta 'templates/'
+    return render_template('create_estudiante.html')
+
+# Ruta POST para insertar un estudiante desde el formulario web
 @app.route('/insert', methods=['POST'])
 def insert_web():
-    # Nota: Este es un ejemplo. Debes adaptar los campos de 'request.form'
-    # según lo que tu formulario HTML (insert.html) envíe.
     data = request.form
+    try:
+        # Asegurar que el semestre es un entero
+        semestre_int = int(data['semestre'])
+    except ValueError:
+        return "El campo 'semestre' debe ser un número entero.", 400
+
     nuevo_estudiante = Estudiante(
         no_control = data['no_control'],
         nombre = data['nombre'],
         ap_paterno = data['ap_paterno'],
         ap_materno = data['ap_materno'],
-        semestre = int(data['semestre']) # Asegurar que es un entero
+        semestre = semestre_int
     )
     try:
         db.session.add(nuevo_estudiante)
         db.session.commit()
         return redirect(url_for('index'))
-    except Exception:
+    except Exception as e:
         db.session.rollback()
-        # En una app real, aquí se manejaría un error
-        return "Error al insertar estudiante web", 500
+        logging.error(f"Error al insertar estudiante web: {e}")
+        return f"Error al insertar estudiante web (posible duplicado o BD caída): {e}", 500
 
-# Añadir aquí las rutas de update y delete del CRUD web (si las tenías)
-# ...
+# Ruta POST para eliminar un estudiante web
+@app.route('/estudiantes/delete/<no_control>', methods=['POST'])
+def delete_estudiante_web(no_control):
+    estudiante = Estudiante.query.get(no_control)
+    if estudiante is None:
+        return "Estudiante no encontrado para eliminar", 404
+    try:
+        db.session.delete(estudiante)
+        db.session.commit()
+        return redirect(url_for('index'))
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error al eliminar estudiante web: {e}")
+        return f"Error al eliminar estudiante web: {e}", 500
+
+# Ruta GET y POST para actualizar un estudiante web (RUTA DE PRUEBA/PLACEHOLDER)
+@app.route('/estudiantes/update/<no_control>', methods=['GET', 'POST'])
+def update_estudiante_web(no_control):
+    estudiante = Estudiante.query.get(no_control)
+    if estudiante is None:
+        return "Estudiante no encontrado para actualizar", 404
+
+    if request.method == 'POST':
+        # Esta es la lógica para procesar el formulario de actualización
+        if 'nombre' in request.form:
+             estudiante.nombre = request.form['nombre']
+        # Añade aquí más campos si implementas el formulario de actualización...
+        
+        try:
+            db.session.commit()
+            return redirect(url_for('index'))
+        except Exception as e:
+            db.session.rollback()
+            logging.error(f"Error al actualizar estudiante web: {e}")
+            return f"Error al actualizar estudiante web: {e}", 500
+    
+    # En el caso de GET, deberías renderizar un formulario con los datos prellenados
+    # return render_template('update_estudiante.html', estudiante=estudiante) 
+    return f"Página de actualización para {estudiante.nombre} (No Control: {no_control}). Necesitas implementar el formulario de actualización.", 200
+
 
 # -----------------------------------------------
 # 2. RUTAS DE LA API REST (Maneja el JSON)
 # -----------------------------------------------
 
+# RUTA CRÍTICA CORREGIDA PARA ASEGURAR JSON
 @app.route('/estudiantes', methods=['GET'])
 def get_estudiantes():
-    # Devuelve el listado completo en JSON
-    estudiantes = Estudiante.query.all()
-    lista_estudiantes = []
-    for estudiante in estudiantes:
-        lista_estudiantes.append({
-            'no_control': estudiante.no_control,
-            'nombre': estudiante.nombre,
-            'ap_paterno': estudiante.ap_paterno,
-            'ap_materno': estudiante.ap_materno,
-            'semestre': estudiante.semestre
-        })
-    return jsonify(lista_estudiantes)
+    try:
+        estudiantes = Estudiante.query.all()
+        lista_estudiantes = []
+        for estudiante in estudiantes:
+            # Usamos 'or '' ' para prevenir errores si algún campo de texto es NULL en la BD
+            # aunque esté definido como String(100) en el modelo.
+            lista_estudiantes.append({
+                'no_control': estudiante.no_control or '',
+                'nombre': estudiante.nombre or '',
+                'ap_paterno': estudiante.ap_paterno or '',
+                'ap_materno': estudiante.ap_materno or '',
+                'semestre': estudiante.semestre,
+            })
+        return jsonify(lista_estudiantes)
+    except Exception as e:
+        # Si esta ruta falla, mostrará este JSON con el error para diagnosticar.
+        logging.error(f"FALLA FATAL en API GET /estudiantes: {e}")
+        return jsonify({'msg': 'Error en el servidor al obtener lista de API JSON', 'detail': str(e)}), 500
 
 @app.route('/estudiantes/<no_control>', methods=['GET'])
 def get_estudiante(no_control):

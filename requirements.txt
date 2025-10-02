@@ -1,5 +1,5 @@
-flask 
+flask
 flask_sqlalchemy
-guinicorn
+gunicorn==20.1.0
 python-dotenv
-psycopg2 
+psycopg2-binary
